@@ -24,7 +24,22 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'io.projectreactor:reactor-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	// ----
+	// Enabling Metrics!
+	//
+	// First, we need to enable Spring Boot's actuators.
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	// Second, enable DGS micrometer metrics integration.
+	implementation 'com.netflix.graphql.dgs:graphql-dgs-spring-boot-micrometer'
+	implementation 'io.micrometer:micrometer-registry-datadog:latest.release'
+
+	implementation group: 'com.datadoghq', name: 'dd-trace-api', version: '1.33.0'
+	implementation 'io.micrometer:micrometer-tracing-bridge-brave'
+	implementation 'org.springframework.boot:spring-boot-starter-graphql'
+
 }
+
+//ext['graphql-java.version'] = '19.2'
 
 tasks.named('test') {
 	useJUnitPlatform()

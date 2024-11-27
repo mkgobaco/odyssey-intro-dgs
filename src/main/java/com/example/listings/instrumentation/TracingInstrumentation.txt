@@ -1,0 +1,85 @@
+package com.example.listings.instrumentation;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.listings.models.ListingModel;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.util.List;
+import java.io.IOException;
+import com.example.listings.generated.types.Amenity;
+import com.example.listings.generated.types.CreateListingInput;
+import com.example.listings.models.CreateListingModel;
+import org.springframework.http.converter.json.MappingJacksonValue;
+import graphql.execution.instrumentation.*;
+import graphql.schema.*;
+import java.util.concurrent.*;
+import graphql.*;
+import graphql.execution.instrumentation.parameters.*;
+import org.slf4j.*;
+@Component
+public class TracingInstrumentation extends SimpleInstrumentation {
+    private final static Logger LOGGER = LoggerFactory.getLogger(TracingInstrumentation.class);
+
+    @Override
+    public InstrumentationState createState() {
+        return new TracingState();
+    }
+
+    @Override
+    public InstrumentationContext<ExecutionResult> beginExecution(InstrumentationExecutionParameters parameters) {
+        TracingState tracingState = parameters.getInstrumentationState();
+        tracingState.startTime = System.currentTimeMillis();
+        return super.beginExecution(parameters);
+    }
+
+    @Override
+    public DataFetcher<?> instrumentDataFetcher(DataFetcher<?> dataFetcher, InstrumentationFieldFetchParameters parameters) {
+        // We only care about user code
+        if(parameters.isTrivialDataFetcher()) {
+            return dataFetcher;
+        }
+
+        return environment -> {
+            long startTime = System.currentTimeMillis();
+            Object result = dataFetcher.get(environment);
+            if(result instanceof CompletableFuture) {
+                ((CompletableFuture<?>) result).whenComplete((r, ex) -> {
+                    long totalTime = System.currentTimeMillis() - startTime;
+                    LOGGER.info("Async datafetcher {} took {}ms", findDatafetcherTag(parameters), totalTime);
+                });
+            } else {
+                long totalTime = System.currentTimeMillis() - startTime;
+                LOGGER.info("Datafetcher {} took {}ms", findDatafetcherTag(parameters), totalTime);
+            }
+
+            return result;
+        };
+    }
+
+    @Override
+    public CompletableFuture<ExecutionResult> instrumentExecutionResult(ExecutionResult executionResult, InstrumentationExecutionParameters parameters) {
+        TracingState tracingState = parameters.getInstrumentationState();
+        long totalTime = System.currentTimeMillis() - tracingState.startTime;
+        LOGGER.info("Total execution time: {}ms", totalTime);
+
+        return super.instrumentExecutionResult(executionResult, parameters);
+    }
+
+    private String findDatafetcherTag(InstrumentationFieldFetchParameters parameters) {
+        GraphQLOutputType type = parameters.getExecutionStepInfo().getParent().getType();
+        GraphQLObjectType parent;
+        if (type instanceof GraphQLNonNull) {
+            parent = (GraphQLObjectType) ((GraphQLNonNull) type).getWrappedType();
+        } else {
+            parent = (GraphQLObjectType) type;
+        }
+
+        return  parent.getName() + "." + parameters.getExecutionStepInfo().getPath().getSegmentName();
+    }
+
+    static class TracingState implements InstrumentationState {
+        long startTime;
+    }
+}
